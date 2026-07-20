@@ -6,6 +6,7 @@
     "icon": "search.png",
     "author": "KurosakiRei",
     "level": 1,
+    "v2": true,
     "history": {
       "v1.0": "初始版本：No result过滤、年份宽松标记"
     }
@@ -17,6 +18,7 @@
     "icon": "download.png",
     "author": "KurosakiRei",
     "level": 1,
+    "v2": true,
     "history": {
       "v1.0": "初始版本：YAML配置多站点、CSS选择器提取下载链接、并行解析"
     }
