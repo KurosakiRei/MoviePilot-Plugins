@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,9 +8,10 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from app.core.context import Context
 from app.core.config import settings
+from app.core.context import Context
 from app.core.event import eventmanager, Event
+from app.helper.sites import SitesHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import ChainEventType
@@ -18,41 +20,62 @@ from app.utils.http import RequestUtils
 
 class SiteDownloadBridge(_PluginBase):
     """
-    二次跳转种子下载桥接插件
+    站点索引 + 下载桥接插件（CustomIndexer 增强版）
 
-    支持那些搜索结果返回的是种子详情页（而非直接下载链接）的站点。
-    插件会在资源选择阶段自动抓取详情页，智能识别页面中的磁力链接(magnet:)
-    和种子文件(.torrent)，无需手动指定CSS选择器即可工作。
+    ====== 两大核心功能 ======
 
-    两种工作模式：
-      1. 自动模式（推荐）：不填 download_selector，自动扫描页面所有链接
-      2. 精确模式：指定 CSS 选择器精确定位下载元素
+    1. 索引器注册（indexer）：
+       为 MoviePilot 添加自定义站点的搜索能力，自动获取标题、大小、
+       做种者、下载链接等元数据。格式兼容官方索引器配置，但无需 base64。
 
-    自动模式会按优先级匹配：磁力链接 > .torrent文件 > 含download关键字的链接
+    2. 下载桥接（bridge）：
+       对搜索结果返回的是种子详情页（而非直接下载链接）的站点，
+       自动抓取详情页，识别磁力链接(magnet:) 或种子文件(.torrent)。
 
-    配置格式 (YAML):
-      sites:
-        - name: "FileMood"
-          domains:
-            - "filemood.com"
-          # download_selector 可选，留空则自动检测
+    ====== 配置格式 (YAML) ======
+
+    sites:
+      # ---- 仅下载桥接（站点已在 TorrentKitty 等索引器中）----
+      - name: "FileMood"
+        domains:
+          - "filemood.com"
+        bridge:
           need_cookie: true
           need_proxy: true
 
-        - name: "复杂站点"  # 如需精确匹配
-          domains:
-            - "complex-site.com"
-          download_selector: "a.dl-btn"   # 可选：CSS选择器
-          download_attr: "href"
-          url_regex: "\\.torrent$"          # 可选：URL正则过滤
-          need_cookie: false
+      # ---- 索引器 + 下载桥接（完整配置）----
+      - name: "T-Baozi"
+        domains:
+          - "p.t-baozi.cc"
+        indexer:
+          domain: "p.t-baozi.cc"
+          public: false
+          search:
+            paths:
+              - path: "/torrents.php?search={keyword}&search_area=0"
+          torrents:
+            list:
+              selector: "table.torrents > tbody > tr:not(.table2_title)"
+            fields:
+              title:
+                selector: "td:nth-child(2) table.torrentname a b"
+              download:
+                selector: "td:nth-child(2) a[href^='download.php']"
+                attribute: "href"
+              size:
+                selector: "td:nth-child(5)"
+              seeders:
+                selector: "td:nth-child(6)"
+        bridge:
+          need_cookie: true
           need_proxy: false
+          # download_selector 可选，不填则自动检测
     """
 
     plugin_name = "站点下载桥接"
-    plugin_desc = "支持二次跳转站点的种子下载：自动从详情页提取真实种子/磁力链接。使用YAML配置，可读性强，支持多站点。"
+    plugin_desc = "索引器注册 + 二次跳转下载：支持自定义站点搜索（获取标题/大小/做种者等）并自动从详情页提取真实磁链/种子。YAML配置，无需base64。"
     plugin_icon = "download.png"
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     plugin_author = "KurosakiRei"
     author_url = "https://github.com/KurosakiRei"
     plugin_config_prefix = "sitedownloadbridge_"
@@ -74,35 +97,86 @@ class SiteDownloadBridge(_PluginBase):
             self._parse_config()
 
     def _parse_config(self):
-        """解析 YAML 配置"""
+        """解析 YAML 配置，注册索引器并加载桥接规则"""
         self._sites_config = []
         if not self._config_yaml:
             return
         try:
             data = yaml.safe_load(self._config_yaml)
-            if isinstance(data, dict) and "sites" in data:
-                for site in data["sites"]:
-                    if not isinstance(site, dict):
-                        continue
-                    name = site.get("name", "")
-                    domains = site.get("domains", [])
-                    if isinstance(domains, str):
-                        domains = [domains]
-                    # download_selector 可选：不填则自动扫描页面所有磁链/torrent
-                    download_selector = site.get("download_selector", "")
-                    download_attr = site.get("download_attr", "href")
+            if not isinstance(data, dict) or "sites" not in data:
+                return
+
+            registered_count = 0
+            bridge_count = 0
+
+            for site in data["sites"]:
+                if not isinstance(site, dict):
+                    continue
+
+                name = site.get("name", "")
+                if not name:
+                    continue
+
+                # ---- 解析域名 ----
+                domains = site.get("domains", [])
+                if isinstance(domains, str):
+                    domains = [domains]
+                # 也从 indexer.domain 提取
+                indexer_cfg = site.get("indexer")
+                if isinstance(indexer_cfg, dict):
+                    idx_domain = indexer_cfg.get("domain", "")
+                    if idx_domain and idx_domain not in domains:
+                        domains.append(idx_domain)
+                domains = [d.lower().strip() for d in domains if d]
+
+                if not domains:
+                    logger.warn(f"[SiteDownloadBridge] 站点 '{name}' 缺少域名，跳过")
+                    continue
+
+                # ---- 注册索引器 ----
+                if isinstance(indexer_cfg, dict) and indexer_cfg.get("domain"):
+                    try:
+                        domain_key = indexer_cfg.get("domain", "")
+                        # 构建标准索引器配置（移除 bridge 无关字段，保留纯索引器 JSON）
+                        idx_json = {k: v for k, v in indexer_cfg.items()
+                                    if k not in ("bridge",)}
+                        SitesHelper().add_indexer(domain_key, idx_json)
+                        registered_count += 1
+                        logger.info(f"[SiteDownloadBridge] ✅ 已注册索引器: {name} ({domain_key})")
+                    except Exception as e:
+                        logger.error(f"[SiteDownloadBridge] 注册索引器失败 {name}: {e}")
+
+                # ---- 加载桥接规则 ----
+                bridge_cfg = site.get("bridge")
+                bridge_enabled = False
+                need_cookie = False
+                need_proxy = False
+                download_selector = ""
+                download_attr = "href"
+                encoding = "utf-8"
+                url_regex = ""
+
+                if isinstance(bridge_cfg, dict):
+                    bridge_enabled = bridge_cfg.get("enabled", True)
+                    need_cookie = bridge_cfg.get("need_cookie", False)
+                    need_proxy = bridge_cfg.get("need_proxy", False)
+                    download_selector = bridge_cfg.get("download_selector", "")
+                    download_attr = bridge_cfg.get("download_attr", "href")
+                    encoding = bridge_cfg.get("encoding", "utf-8")
+                    url_regex = bridge_cfg.get("url_regex", "")
+                elif isinstance(bridge_cfg, bool) and bridge_cfg:
+                    bridge_enabled = True
+                # 兼容旧格式：直接在 site 层级配置 bridge 参数
+                elif site.get("need_cookie") is not None or site.get("need_proxy") is not None:
+                    bridge_enabled = True
                     need_cookie = site.get("need_cookie", False)
                     need_proxy = site.get("need_proxy", False)
-                    encoding = site.get("encoding", "utf-8")
-                    url_regex = site.get("url_regex", "")
+                    download_selector = site.get("download_selector", "")
 
-                    if not name or not domains:
-                        logger.warn(f"[SiteDownloadBridge] 站点配置不完整（缺少名称或域名），跳过: {name}")
-                        continue
-
+                if bridge_enabled:
                     self._sites_config.append({
                         "name": name,
-                        "domains": [d.lower().strip() for d in domains],
+                        "domains": domains,
                         "download_selector": download_selector,
                         "download_attr": download_attr,
                         "need_cookie": need_cookie,
@@ -110,7 +184,11 @@ class SiteDownloadBridge(_PluginBase):
                         "encoding": encoding,
                         "url_regex": url_regex,
                     })
-                    logger.info(f"[SiteDownloadBridge] 已加载站点: {name} → {domains}")
+                    bridge_count += 1
+                    logger.info(f"[SiteDownloadBridge] 已加载桥接规则: {name} → {domains}")
+
+            logger.info(f"[SiteDownloadBridge] 配置解析完成: {registered_count} 个索引器, {bridge_count} 个桥接规则")
+
         except Exception as e:
             logger.error(f"[SiteDownloadBridge] YAML 配置解析失败: {e}")
 
@@ -125,7 +203,7 @@ class SiteDownloadBridge(_PluginBase):
         pass
 
     def _match_site(self, page_url: str) -> Optional[Dict]:
-        """根据 URL 匹配对应的站点配置"""
+        """根据 URL 匹配对应的站点桥接配置"""
         if not page_url:
             return None
         try:
@@ -181,7 +259,7 @@ class SiteDownloadBridge(_PluginBase):
 
             candidates = []
 
-            # ---- 策略 1：CSS 选择器精确提取（如果配置了）----
+            # ---- 策略 1：CSS 选择器精确提取 ----
             if selector:
                 elements = soup.select(selector)
                 if elements:
@@ -191,39 +269,29 @@ class SiteDownloadBridge(_PluginBase):
                             if not url.startswith("http") and not url.startswith("magnet:"):
                                 url = urljoin(page_url, url)
                             candidates.append(url)
-                    if candidates:
-                        logger.debug(f"[SiteDownloadBridge] CSS选择器匹配到 {len(candidates)} 个候选链接")
 
             # ---- 策略 2：自动扫描所有 <a> 标签 ----
-            if not candidates or not selector:
-                logger.debug(f"[SiteDownloadBridge] 使用自动扫描模式（{'选择器未配置' if not selector else '选择器无结果'}）")
+            if not candidates:
                 for a_tag in soup.find_all("a", href=True):
                     url = (a_tag.get("href") or "").strip()
                     if not url:
                         continue
-
-                    # 转为绝对 URL
                     if not url.startswith("http") and not url.startswith("magnet:"):
                         url = urljoin(page_url, url)
-
                     url_lower = url.lower()
-                    # 匹配磁力链接、.torrent 文件、或包含 download/torrent 关键字的链接
                     if url.startswith("magnet:") or ".torrent" in url_lower or \
                             any(kw in url_lower for kw in ["download", "torrent", "getfile"]):
                         if url not in candidates:
                             candidates.append(url)
 
-                logger.debug(f"[SiteDownloadBridge] 自动扫描发现 {len(candidates)} 个候选链接")
-
             if not candidates:
                 logger.warn(f"[SiteDownloadBridge] 未找到任何下载链接 @ {page_url}")
                 return None
 
-            # ---- 过滤与选择最佳候选 ----
+            # ---- 按优先级选择：磁力链接 > .torrent ----
             for url in candidates:
                 if url_regex and not re.search(url_regex, url):
                     continue
-                # 优先级：磁力链接 > .torrent 直链 > 含 download/torrent 关键字的链接
                 if url.startswith("magnet:"):
                     logger.info(f"[SiteDownloadBridge] ✅ {site_config['name']}: 自动检测到磁力链接")
                     return url
@@ -231,17 +299,16 @@ class SiteDownloadBridge(_PluginBase):
             for url in candidates:
                 if url_regex and not re.search(url_regex, url):
                     continue
-                if url.lower().endswith(".torrent") or ".torrent" in url.lower():
+                if ".torrent" in url.lower():
                     logger.info(f"[SiteDownloadBridge] ✅ {site_config['name']}: 自动检测到种子文件 {url[:80]}...")
                     return url
 
-            # 兜底：返回第一个通过正则的候选
+            # 兜底
             for url in candidates:
                 if not url_regex or re.search(url_regex, url):
                     logger.info(f"[SiteDownloadBridge] ⚠ {site_config['name']}: 使用候选链接 {url[:80]}...")
                     return url
 
-            logger.warn(f"[SiteDownloadBridge] 所有候选链接被 url_regex 过滤: {url_regex}")
             return None
 
         except Exception as e:
@@ -262,19 +329,16 @@ class SiteDownloadBridge(_PluginBase):
         if not contexts:
             return
 
-        # 找出需要桥接的 torrent
-        bridge_tasks = []  # (index, context, site_config)
+        bridge_tasks = []
         for idx, ctx in enumerate(contexts):
             torrent = getattr(ctx, "torrent_info", None)
             if not torrent:
                 continue
 
-            # 优先使用 enclosure，其次 page_url
             page_url = getattr(torrent, "page_url", None) or getattr(torrent, "enclosure", None)
             if not page_url:
                 continue
 
-            # 跳过已经是磁力链接或 .torrent 直链的
             if str(page_url).startswith("magnet:") or str(page_url).endswith(".torrent"):
                 continue
 
@@ -287,7 +351,6 @@ class SiteDownloadBridge(_PluginBase):
 
         logger.info(f"[SiteDownloadBridge] 发现 {len(bridge_tasks)} 个需要桥接的资源，开始并行解析...")
 
-        # 并行抓取详情页、提取下载链接
         resolved_count = 0
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             futures = {}
@@ -304,7 +367,6 @@ class SiteDownloadBridge(_PluginBase):
                     if real_url:
                         torrent = getattr(ctx, "torrent_info", None)
                         if torrent:
-                            # 设置 enclosure 为真实下载链接（MoviePilot 下载时优先读此字段）
                             try:
                                 torrent.enclosure = real_url
                                 resolved_count += 1
@@ -321,30 +383,52 @@ class SiteDownloadBridge(_PluginBase):
             logger.info(f"[SiteDownloadBridge] 解析完成: {resolved_count}/{len(bridge_tasks)} 个成功")
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        default_yaml = """# 二次跳转站点配置 (YAML格式)
-# 支持两种模式：
+        default_yaml = """# ====== 站点索引 + 下载桥接配置 (YAML) ======
 #
-# 【自动模式】不填 download_selector，自动扫描页面所有磁链和种子
-# sites:
-#   - name: "FileMood"
-#     domains: ["filemood.com"]
-#     need_cookie: true
-#     need_proxy: true
+# 两种配置方式可单独使用或组合使用:
 #
-# 【精确模式】指定CSS选择器精确定位（高级用户）
-#   download_selector: CSS选择器（可选，不填则自动检测）
-#   download_attr:      提取属性（默认 href）
-#   url_regex:          URL正则过滤（可选）
-#   need_cookie:        是否需要站点Cookie
-#   need_proxy:         是否使用代理(FlareSolverr)
-#   encoding:           页面编码（默认 utf-8）
+# 【仅下载桥接】站点已在 TorrentKitty 等索引器中，只需处理二次跳转:
+#   sites:
+#     - name: "FileMood"
+#       domains: ["filemood.com"]
+#       bridge:
+#         need_cookie: true
+#         need_proxy: true
+#
+# 【索引器 + 下载桥接】完整配置新站点:
+#   sites:
+#     - name: "MySite"
+#       domains: ["mysite.com"]
+#       indexer:
+#         domain: "mysite.com"
+#         public: false
+#         search:
+#           paths:
+#             - path: "/torrents.php?search={keyword}"
+#         torrents:
+#           list:
+#             selector: "table.torrents > tbody > tr"
+#           fields:
+#             title:
+#               selector: "td:nth-child(2) a"
+#             download:
+#               selector: "td:nth-child(3) a"
+#               attribute: "href"
+#             size:
+#               selector: "td:nth-child(5)"
+#             seeders:
+#               selector: "td:nth-child(6)"
+#       bridge:
+#         need_cookie: true
+#         need_proxy: false
 #
 sites:
   - name: "FileMood"
     domains:
       - "filemood.com"
-    need_cookie: true
-    need_proxy: true
+    bridge:
+      need_cookie: true
+      need_proxy: true
 """
         return [
             {
@@ -409,8 +493,8 @@ sites:
                                         "component": "VTextarea",
                                         "props": {
                                             "model": "config_yaml",
-                                            "label": "站点桥接配置 (YAML)",
-                                            "rows": 18,
+                                            "label": "站点配置 (YAML)",
+                                            "rows": 20,
                                             "placeholder": "在此粘贴 YAML 格式的站点配置...",
                                         }
                                     }
@@ -430,7 +514,7 @@ sites:
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "工作原理：搜索返回结果后，自动抓取详情页。优先使用CSS选择器（如配置），否则自动扫描页面所有 magnet: 和 .torrent 链接。支持并行解析。需依赖：beautifulsoup4, lxml, pyyaml"
+                                            "text": "两大功能：1) indexer 注册索引器（获取标题/大小/做种者等元数据）；2) bridge 处理二次跳转下载。indexer 配置格式兼容官方，但无需 base64 编码。bridge 自动检测 magnet: 和 .torrent 链接。需依赖：beautifulsoup4, lxml, pyyaml"
                                         }
                                     }
                                 ]

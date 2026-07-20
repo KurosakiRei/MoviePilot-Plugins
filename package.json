@@ -14,13 +14,14 @@
   },
   "SiteDownloadBridge": {
     "name": "站点下载桥接",
-    "description": "支持二次跳转站点的种子下载：自动从详情页扫描磁力链接(magnet:)和种子文件(.torrent)，无需手动指定CSS选择器即可工作。使用YAML配置，可读性强，支持多站点。",
-    "version": "1.0.1",
+    "description": "索引器注册 + 二次跳转下载：支持自定义站点搜索（获取标题/大小/做种者等）并自动从详情页提取真实磁链/种子。YAML配置，无需base64。",
+    "version": "1.1.0",
     "icon": "download.png",
     "author": "KurosakiRei",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.1.0": "重大更新：新增 indexer 索引器注册功能，支持自定义站点搜索并获取标题/大小/做种者等完整元数据；bridge 配置统一到子节点",
       "v1.0.1": "修复：添加缺失的 get_api/get_command 抽象方法",
       "v1.0": "初始版本：YAML配置多站点、自动检测磁链、并行解析"
     }
