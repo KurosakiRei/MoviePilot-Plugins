@@ -117,6 +117,13 @@ class SiteDownloadBridge(_PluginBase):
     def get_state(self) -> bool:
         return self._enabled
 
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        pass
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        pass
+
     def _match_site(self, page_url: str) -> Optional[Dict]:
         """根据 URL 匹配对应的站点配置"""
         if not page_url:

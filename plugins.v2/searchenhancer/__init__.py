@@ -35,6 +35,13 @@ class SearchEnhancer(_PluginBase):
     def get_state(self) -> bool:
         return self._enabled
 
+    @staticmethod
+    def get_command() -> List[Dict[str, Any]]:
+        pass
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        pass
+
     @eventmanager.register(ChainEventType.ResourceSelection)
     def _on_resource_selection(self, event: Event):
         """拦截资源选择，过滤占位符并标记年份不匹配"""
