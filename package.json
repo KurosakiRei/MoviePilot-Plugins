@@ -1,0 +1,24 @@
+{
+  "SearchEnhancer": {
+    "name": "搜索增强",
+    "description": "增强搜索结果匹配：过滤No result占位符、年份不匹配仅警告不丢弃、中文标题包含匹配",
+    "version": "1.0",
+    "icon": "search.png",
+    "author": "KurosakiRei",
+    "level": 1,
+    "history": {
+      "v1.0": "初始版本：No result过滤、年份宽松标记"
+    }
+  },
+  "SiteDownloadBridge": {
+    "name": "站点下载桥接",
+    "description": "支持二次跳转站点的种子下载：自动从详情页扫描磁力链接(magnet:)和种子文件(.torrent)，无需手动指定CSS选择器即可工作。使用YAML配置，可读性强，支持多站点。",
+    "version": "1.0",
+    "icon": "download.png",
+    "author": "KurosakiRei",
+    "level": 1,
+    "history": {
+      "v1.0": "初始版本：YAML配置多站点、CSS选择器提取下载链接、并行解析"
+    }
+  }
+}
