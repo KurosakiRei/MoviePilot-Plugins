@@ -1,0 +1,48 @@
+# ====== FileMood 完整 YAML 配置 ======
+# 复制到 SiteDownloadBridge 插件的配置文本区即可使用
+#
+# 搜索 URL: https://filemood.com/result?q={keyword}
+# 详情页 AJAX: $.post('link/index', {source:1, data:'enc...'}) → magnet:
+
+sites:
+  - name: "FileMood"
+    domains:
+      - "filemood.com"
+    
+    indexer:
+      domain: "filemood.com"
+      public: true
+      encoding: "UTF-8"
+      search:
+        paths:
+          - path: "/result?q={keyword}"
+            method: "get"
+      torrents:
+        list:
+          selector: "table:has(td.dn-title)"
+        fields:
+          title:
+            selector: "td.dn-title a"
+          details:
+            selector: "td.dn-title a"
+            attribute: "href"
+          download:
+            selector: "td.dn-btn a.btn"
+            attribute: "href"
+          size:
+            selector: "td.dn-size p.text b"
+          seeders:
+            selector: "td.dn-status p.text b"
+            optional: true
+          downloadvolumefactor:
+            case:
+              "*": 0
+          uploadvolumefactor:
+            case:
+              "*": 1
+    
+    bridge:
+      need_cookie: true
+      need_proxy: true
+      trigger:
+        selector: "#download-btn"
