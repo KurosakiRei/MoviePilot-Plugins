@@ -150,7 +150,7 @@ class SiteDownloadBridge(_PluginBase):
                     "mode": trigger_cfg.get("mode", "auto"),
                     "form_selector": trigger_cfg.get("form_selector", ""),
                     "script_url_regex": trigger_cfg.get("script_url_regex", ""),
-                    "script_data_field": trigger_cfg.get("script_data_field", ""),
+                    "script_data_field": trigger_cfg.get("script_data_field", "data"),
                     "ajax_method": trigger_cfg.get("ajax_method", ""),
                 }
         elif isinstance(bridge_cfg, bool) and bridge_cfg:
