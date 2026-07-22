@@ -337,7 +337,6 @@ class SiteDownloadBridge(_PluginBase):
             # 构建 AJAX 请求所需的 headers（模拟浏览器）
             ajax_headers = {
                 "X-Requested-With": "XMLHttpRequest",
-                "Accept": "text/plain, */*; q=0.01",
             }
 
             if found_ajax_type == "POST":
