@@ -15,13 +15,14 @@
   "SiteDownloadBridge": {
     "name": "站点下载桥接",
     "description": "索引器+桥接+按钮触发：自定义站点搜索、二次跳转下载、JS按钮AJAX下载。支持4种触发策略（属性/onclick/表单/脚本重放）。YAML配置，附带完整指南。",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "icon": "download.png",
     "author": "KurosakiRei",
     "level": 1,
     "v2": true,
     "history": {
-      "v1.2.0": "重大更新：新增 trigger 按钮触发功能，支持 AJAX 下载（4策略：属性/onclick/表单/脚本重放），完美支持 FileMood 类 JS 触发站点。新增 YAML_GUIDE.md 配置指南",
+      "v1.2.1": "修复：单次下载不触发桥接（添加 ResourceDownload 事件处理器）",
+      "v1.2.0": "新增 trigger 按钮触发 + 脚本 AJAX 重放",
       "v1.1.0": "新增 indexer 索引器注册功能",
       "v1.0.1": "修复：添加缺失的 get_api/get_command 抽象方法",
       "v1.0": "初始版本"
