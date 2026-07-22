@@ -303,7 +303,7 @@ class SiteDownloadBridge(_PluginBase):
         post_data = None
         if found_ajax_data and found_ajax_type == "POST":
             # 尝试从页面源码中提取 data 字段的实际值（可能是变量引用）
-            data_field = trigger_cfg.get("script_data_field", "data")
+            data_field = trigger_cfg.get("script_data_field") or "data"
             # 先尝试从脚本中直接提取 data 字段的值
             data_val_m = re.search(
                 r"data\s*:\s*['\"]([^'\"]+)['\"]",
