@@ -333,7 +333,7 @@ class SiteDownloadBridge(_PluginBase):
         # --- 重放 AJAX 请求 ---
         try:
             cookie = site_config.get("_cookie")
-            use_proxy = site_config.get("need_proxy", False)
+            # AJAX 请求不经过代理（代理仅用于绕过 Cloudflare 抓页面，内部 API 不需要）
 
             # 构建 AJAX 请求所需的 headers（模拟浏览器）
             ajax_headers = {
@@ -346,7 +346,6 @@ class SiteDownloadBridge(_PluginBase):
                     cookies=cookie,
                     referer=page_url,
                     headers=ajax_headers,
-                    proxies=settings.PROXY if use_proxy else None,
                 ).post_res(url=found_ajax_url, data=post_data, timeout=self._fetch_timeout,
                            allow_redirects=True)
             else:
@@ -354,7 +353,6 @@ class SiteDownloadBridge(_PluginBase):
                     cookies=cookie,
                     referer=page_url,
                     headers=ajax_headers,
-                    proxies=settings.PROXY if use_proxy else None,
                 ).get_res(url=found_ajax_url, timeout=self._fetch_timeout,
                           allow_redirects=True)
 
