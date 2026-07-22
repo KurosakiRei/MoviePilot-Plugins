@@ -332,8 +332,7 @@ class SiteDownloadBridge(_PluginBase):
 
         # --- 重放 AJAX 请求 ---
         try:
-            cookie = site_config.get("_cookie")
-            # AJAX 请求不经过代理（代理仅用于绕过 Cloudflare 抓页面，内部 API 不需要）
+            # AJAX 请求不经过代理、不携带 cookie（已验证直接 POST 即可成功）
 
             # 构建 AJAX 请求所需的 headers（模拟浏览器）
             ajax_headers = {
@@ -343,14 +342,12 @@ class SiteDownloadBridge(_PluginBase):
 
             if found_ajax_type == "POST":
                 req = RequestUtils(
-                    cookies=cookie,
                     referer=page_url,
                     headers=ajax_headers,
                 ).post_res(url=found_ajax_url, data=post_data, timeout=self._fetch_timeout,
                            allow_redirects=True)
             else:
                 req = RequestUtils(
-                    cookies=cookie,
                     referer=page_url,
                     headers=ajax_headers,
                 ).get_res(url=found_ajax_url, timeout=self._fetch_timeout,
