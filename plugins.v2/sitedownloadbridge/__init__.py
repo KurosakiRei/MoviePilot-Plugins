@@ -329,42 +329,66 @@ class SiteDownloadBridge(_PluginBase):
 
         # --- 重放 AJAX 请求 ---
         try:
-            cookie = site_config.get("_cookie")  # will be set from torrent_ctx
+            cookie = site_config.get("_cookie")
             use_proxy = site_config.get("need_proxy", False)
+
+            # 构建 AJAX 请求所需的 headers（模拟浏览器）
+            ajax_headers = {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "text/plain, */*; q=0.01",
+            }
 
             if found_ajax_type == "POST":
                 req = RequestUtils(
                     cookies=cookie,
+                    referer=page_url,
+                    headers=ajax_headers,
                     proxies=settings.PROXY if use_proxy else None,
-                ).post_res(url=found_ajax_url, data=post_data, timeout=self._fetch_timeout)
+                ).post_res(url=found_ajax_url, data=post_data, timeout=self._fetch_timeout,
+                           allow_redirects=True)
             else:
                 req = RequestUtils(
                     cookies=cookie,
+                    referer=page_url,
+                    headers=ajax_headers,
                     proxies=settings.PROXY if use_proxy else None,
-                ).get_res(url=found_ajax_url, timeout=self._fetch_timeout)
+                ).get_res(url=found_ajax_url, timeout=self._fetch_timeout,
+                          allow_redirects=True)
 
-            if req and req.status_code == 200:
-                resp_text = req.text
-                # 检查是否为下载链接
-                if resp_text.startswith("magnet:") or "magnet:" in resp_text:
-                    magnet_m = re.search(r'(magnet:\?[^\s\"\'<>]+)', resp_text)
-                    url = magnet_m.group(1) if magnet_m else resp_text.strip()
-                    candidates.append(url)
-                elif ".torrent" in resp_text.lower() or resp_text.startswith("http"):
-                    candidates.append(resp_text.strip())
+            if req is not None:
+                resp_text = (req.text or "").strip()
+                logger.debug(f"[SiteDownloadBridge] AJAX 响应: status={req.status_code}, len={len(resp_text)}, text={resp_text[:200]}")
+
+                if req.status_code in (200, 302, 301):
+                    # 检查是否为下载链接
+                    if resp_text.startswith("magnet:") or "magnet:" in resp_text:
+                        magnet_m = re.search(r'(magnet:\?[^\s\"\'<>]+)', resp_text)
+                        url = magnet_m.group(1) if magnet_m else resp_text
+                        candidates.append(url)
+                        logger.info(f"[SiteDownloadBridge] AJAX 响应包含磁力链接")
+                    elif resp_text.startswith("http") and ".torrent" in resp_text.lower():
+                        candidates.append(resp_text)
+                        logger.info(f"[SiteDownloadBridge] AJAX 响应包含种子链接")
+                    elif resp_text:
+                        # 尝试 JSON
+                        try:
+                            j = json.loads(resp_text)
+                            for key in ("url", "download", "link", "magnet", "torrent"):
+                                if key in j and isinstance(j[key], str) and j[key].strip():
+                                    candidates.append(j[key])
+                                    logger.info(f"[SiteDownloadBridge] AJAX JSON 提取: {key}={j[key][:80]}")
+                                    break
+                        except json.JSONDecodeError:
+                            # 可能响应就是纯文本 URL
+                            if resp_text.startswith("http") or resp_text.startswith("magnet:"):
+                                candidates.append(resp_text)
+                                logger.info(f"[SiteDownloadBridge] AJAX 纯文本响应: {resp_text[:80]}")
                 else:
-                    # 可能是 JSON 响应，尝试解析
-                    try:
-                        j = json.loads(resp_text)
-                        for key in ("url", "download", "link", "magnet", "torrent"):
-                            if key in j and isinstance(j[key], str):
-                                candidates.append(j[key])
-                                break
-                    except json.JSONDecodeError:
-                        pass
-                logger.info(f"[SiteDownloadBridge] AJAX 请求返回: {resp_text[:100]}...")
+                    logger.warn(f"[SiteDownloadBridge] AJAX 请求返回异常状态码: {req.status_code}")
+            else:
+                logger.warn(f"[SiteDownloadBridge] AJAX 请求失败：无响应")
         except Exception as e:
-            logger.warn(f"[SiteDownloadBridge] AJAX 请求失败: {e}")
+            logger.warn(f"[SiteDownloadBridge] AJAX 请求异常: {e}")
 
     def _resolve_download_url(self, page_url: str, site_config: Dict, torrent_ctx) -> Optional[str]:
         """
