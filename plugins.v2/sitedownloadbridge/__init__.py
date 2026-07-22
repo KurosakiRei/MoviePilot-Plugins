@@ -552,6 +552,57 @@ class SiteDownloadBridge(_PluginBase):
             event_data.source = "SiteDownloadBridge"
             logger.info(f"[SiteDownloadBridge] 完成: {resolved}/{len(bridge_tasks)}")
 
+    @eventmanager.register(ChainEventType.ResourceDownload)
+    def _on_resource_download(self, event: Event):
+        """
+        拦截单次下载（download_single 路径），在下载前解析二次跳转 URL。
+        ResourceSelection 只覆盖批量下载，单个下载走 ResourceDownload。
+        """
+        if not self._enabled or not self._sites_config:
+            return
+
+        event_data = getattr(event, "event_data", None)
+        if not event_data:
+            return
+
+        ctx = getattr(event_data, "context", None)
+        if not ctx:
+            return
+
+        torrent = getattr(ctx, "torrent_info", None)
+        if not torrent:
+            return
+
+        page_url = getattr(torrent, "page_url", None) or getattr(torrent, "enclosure", None)
+        if not page_url:
+            return
+
+        if str(page_url).startswith("magnet:") or str(page_url).endswith(".torrent"):
+            return
+
+        site_config = self._match_site(str(page_url))
+        if not site_config:
+            return
+
+        logger.info(f"[SiteDownloadBridge] 单次下载拦截: {site_config['name']} → {page_url[:80]}...")
+
+        try:
+            real_url = self._resolve_download_url(str(page_url), site_config, torrent)
+            if real_url:
+                torrent.enclosure = real_url
+                # 同时更新 event_data 中的 context（确保下载链使用更新后的值）
+                if hasattr(event_data, 'context'):
+                    ctx2 = event_data.context
+                    if ctx2:
+                        t2 = getattr(ctx2, "torrent_info", None)
+                        if t2:
+                            t2.enclosure = real_url
+                logger.info(f"[SiteDownloadBridge] ✅ 单次下载: {site_config['name']}: {page_url[:60]}... → {real_url[:80]}")
+            else:
+                logger.warn(f"[SiteDownloadBridge] 单次下载解析失败: {site_config['name']} → {page_url[:80]}")
+        except Exception as e:
+            logger.error(f"[SiteDownloadBridge] 单次下载异常: {e}", exc_info=True)
+
     # ---------- UI ----------
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
