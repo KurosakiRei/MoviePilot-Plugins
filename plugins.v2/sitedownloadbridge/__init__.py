@@ -339,6 +339,8 @@ class SiteDownloadBridge(_PluginBase):
                 "X-Requested-With": "XMLHttpRequest",
             }
 
+            logger.debug(f"[SiteDownloadBridge] 准备重放 AJAX: {found_ajax_type} {found_ajax_url} data={post_data}")
+
             if found_ajax_type == "POST":
                 req = RequestUtils(
                     referer=page_url,
