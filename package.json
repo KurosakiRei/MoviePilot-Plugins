@@ -14,7 +14,7 @@
   },
   "SiteDownloadBridge": {
     "name": "站点下载桥接",
-    "description": "索引器注册 + 二次跳转下载：支持自定义站点搜索（获取标题/大小/做种者等）并自动从详情页提取真实磁链/种子。YAML配置，无需base64。",
+    "description": "索引器+桥接+按钮触发：自定义站点搜索、二次跳转下载、JS按钮AJAX下载。支持4种触发策略（属性/onclick/表单/脚本重放）。YAML配置，附带完整指南。",
     "version": "1.1.0",
     "icon": "download.png",
     "author": "KurosakiRei",
