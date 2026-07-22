@@ -330,29 +330,26 @@ class SiteDownloadBridge(_PluginBase):
                 if not found_ajax_url.startswith("http"):
                     found_ajax_url = urljoin(page_url, found_ajax_url)
 
-        # --- 重放 AJAX 请求 ---
+        # --- 重放 AJAX 请求（直接使用 requests 绕过 RequestUtils 中间件）---
         try:
-            # AJAX 请求不经过代理、不携带 cookie（已验证直接 POST 即可成功）
+            import requests as _requests
 
-            # 构建 AJAX 请求所需的 headers（模拟浏览器）
-            ajax_headers = {
+            _ajax_headers = {
                 "X-Requested-With": "XMLHttpRequest",
+                "Referer": page_url,
             }
 
             logger.debug(f"[SiteDownloadBridge] 准备重放 AJAX: {found_ajax_type} {found_ajax_url} data={post_data}")
 
             if found_ajax_type == "POST":
-                req = RequestUtils(
-                    referer=page_url,
-                    headers=ajax_headers,
-                ).post_res(url=found_ajax_url, data=post_data, timeout=self._fetch_timeout,
-                           allow_redirects=True)
+                req = _requests.post(found_ajax_url, data=post_data,
+                                     headers=_ajax_headers,
+                                     timeout=self._fetch_timeout,
+                                     allow_redirects=True)
             else:
-                req = RequestUtils(
-                    referer=page_url,
-                    headers=ajax_headers,
-                ).get_res(url=found_ajax_url, timeout=self._fetch_timeout,
-                          allow_redirects=True)
+                req = _requests.get(found_ajax_url, headers=_ajax_headers,
+                                    timeout=self._fetch_timeout,
+                                    allow_redirects=True)
 
             if req is not None:
                 resp_text = (req.text or "").strip()
