@@ -187,6 +187,8 @@ class SiteDownloadBridge(_PluginBase):
 
         req = RequestUtils(
             ua=ua, cookies=cookie,
+            referer=page_url,
+            headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
             proxies=settings.PROXY if use_proxy else None,
         ).get_res(url=page_url, timeout=self._fetch_timeout)
 
@@ -194,6 +196,7 @@ class SiteDownloadBridge(_PluginBase):
             logger.warn(f"[SiteDownloadBridge] 获取页面失败: {page_url} status={req.status_code if req else 'None'}")
             return None
 
+        logger.debug(f"[SiteDownloadBridge] 页面获取成功: len={len(req.text)}, preview={req.text[:150].strip()}")
         encoding = site_config.get("encoding", "utf-8")
         try:
             req.encoding = encoding
