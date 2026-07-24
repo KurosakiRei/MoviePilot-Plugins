@@ -1,0 +1,49 @@
+# ====== 1LOU (bt之家 1lou.xyz) 完整 YAML 配置 ======
+# 论坛型站点，搜索结果无大小/做种者（在详情页获取）
+# torrent 下载链接在详情页的 fieldset .attachlist a 中
+
+sites:
+  - name: "1LOU"
+    domains:
+      - "1lou.xyz"
+      - "1lou.me"
+      - "1lou.com"
+    
+    indexer:
+      domain: "1lou.xyz"
+      public: true
+      encoding: "UTF-8"
+      search:
+        paths:
+          - path: "/search-{keyword}.htm"
+            method: "get"
+      torrents:
+        list:
+          selector: "li.media.thread.tap"
+        fields:
+          title:
+            selector: ".subject a"
+          details:
+            selector: ".subject a"
+            attribute: "href"
+          download:
+            selector: ".subject a"
+            attribute: "href"
+          size:
+            selector: ""
+            optional: true
+          date_added:
+            selector: ".date"
+            optional: true
+          downloadvolumefactor:
+            case:
+              "*": 0
+          uploadvolumefactor:
+            case:
+              "*": 1
+    
+    bridge:
+      need_cookie: false
+      need_proxy: false
+      download_selector: "fieldset .attachlist a"
+      download_attr: "href"
