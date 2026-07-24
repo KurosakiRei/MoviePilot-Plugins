@@ -32,7 +32,7 @@ class SiteDownloadBridge(_PluginBase):
     plugin_name = "站点下载桥接"
     plugin_desc = "索引器+桥接+按钮触发：支持自定义站点搜索、二次跳转下载、JS按钮触发的AJAX下载。YAML配置，自动检测磁链/种子。"
     plugin_icon = "download.png"
-    plugin_version = "1.2"
+    plugin_version = "1.2.3"
     plugin_author = "KurosakiRei"
     author_url = "https://github.com/KurosakiRei"
     plugin_config_prefix = "sitedownloadbridge_"
@@ -106,6 +106,9 @@ class SiteDownloadBridge(_PluginBase):
                     try:
                         domain_key = indexer_cfg["domain"]
                         idx_json = {k: v for k, v in indexer_cfg.items() if k != "bridge"}
+                        # 自动注入 name（来自站点级 name，索引器注册必需）
+                        if "name" not in idx_json:
+                            idx_json["name"] = name
                         # 自动生成 id（索引器注册必需，取域名第一部分或 name）
                         if "id" not in idx_json:
                             idx_json["id"] = re.sub(r'[^a-z0-9]', '', name.lower())[:20]
