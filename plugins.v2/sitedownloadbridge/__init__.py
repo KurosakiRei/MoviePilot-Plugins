@@ -106,6 +106,9 @@ class SiteDownloadBridge(_PluginBase):
                     try:
                         domain_key = indexer_cfg["domain"]
                         idx_json = {k: v for k, v in indexer_cfg.items() if k != "bridge"}
+                        # 自动生成 id（索引器注册必需，取域名第一部分或 name）
+                        if "id" not in idx_json:
+                            idx_json["id"] = re.sub(r'[^a-z0-9]', '', name.lower())[:20]
                         SitesHelper().add_indexer(domain_key, idx_json)
                         registered_count += 1
                         logger.info(f"[SiteDownloadBridge] ✅ 索引器已注册: {name} ({domain_key})")
@@ -116,6 +119,7 @@ class SiteDownloadBridge(_PluginBase):
                 bridge_cfg = site.get("bridge")
                 entry = self._parse_bridge_config(name, domains, bridge_cfg, site)
                 if entry:
+                    entry["indexer_registered"] = isinstance(indexer_cfg, dict) and bool(indexer_cfg.get("domain"))
                     self._sites_config.append(entry)
                     bridge_count += 1
                     logger.info(f"[SiteDownloadBridge] 桥接规则已加载: {name} → {domains}")
@@ -684,4 +688,94 @@ sites:
         ], {"enabled": False, "config_yaml": default_yaml, "fetch_timeout": 10, "max_workers": 3}
 
     def get_page(self) -> List[dict]:
-        pass
+        """插件数据页面：展示已配置的站点及状态"""
+        if not self._sites_config:
+            return [{
+                'component': 'VAlert',
+                'props': {'type': 'info', 'variant': 'tonal', 'text': '暂无配置，请先在插件配置中添加站点 YAML'}
+            }]
+
+        # 状态行
+        status_parts = []
+        if self._enabled:
+            status_parts.append('状态：运行中')
+        else:
+            status_parts.append('状态：已停用')
+        status_parts.append(f'已配置站点：{len(self._sites_config)} 个')
+
+        indexer_count = sum(1 for s in self._sites_config if s.get('indexer_registered'))
+        bridge_count = len(self._sites_config)
+        status_parts.append(f'索引器：{indexer_count} 个')
+        status_parts.append(f'桥接规则：{bridge_count} 个')
+
+        # 表头
+        header = {
+            'component': 'VRow',
+            'props': {'class': 'font-weight-bold text-caption py-1 px-2'},
+            'content': [
+                {'component': 'VCol', 'props': {'cols': 3}, 'content': [{'component': 'span', 'text': '站点名称'}]},
+                {'component': 'VCol', 'props': {'cols': 3}, 'content': [{'component': 'span', 'text': '域名'}]},
+                {'component': 'VCol', 'props': {'cols': 1}, 'content': [{'component': 'span', 'text': '索引器'}]},
+                {'component': 'VCol', 'props': {'cols': 1}, 'content': [{'component': 'span', 'text': 'Cookie'}]},
+                {'component': 'VCol', 'props': {'cols': 1}, 'content': [{'component': 'span', 'text': '代理'}]},
+                {'component': 'VCol', 'props': {'cols': 1}, 'content': [{'component': 'span', 'text': '触发'}]},
+                {'component': 'VCol', 'props': {'cols': 2}, 'content': [{'component': 'span', 'text': '下载提取'}]},
+            ]
+        }
+
+        rows = [header]
+        for site in self._sites_config:
+            name = site.get('name', '?')
+            domains = ', '.join(site.get('domains', []))
+            has_indexer = '✅' if site.get('indexer_registered') else '❌'
+            need_cookie = '✅' if site.get('need_cookie') else '—'
+            need_proxy = '✅' if site.get('need_proxy') else '—'
+            has_trigger = '✅' if site.get('trigger') else '—'
+            dl_sel = site.get('download_selector', '') or '自动扫描'
+
+            rows.append({
+                'component': 'VRow',
+                'props': {'class': 'text-caption py-1 px-2'},
+                'content': [
+                    {'component': 'VCol', 'props': {'cols': 3, 'class': 'text-truncate'},
+                     'content': [{'component': 'span', 'text': name}]},
+                    {'component': 'VCol', 'props': {'cols': 3, 'class': 'text-truncate'},
+                     'content': [{'component': 'span', 'text': domains}]},
+                    {'component': 'VCol', 'props': {'cols': 1},
+                     'content': [{'component': 'span', 'text': has_indexer}]},
+                    {'component': 'VCol', 'props': {'cols': 1},
+                     'content': [{'component': 'span', 'text': need_cookie}]},
+                    {'component': 'VCol', 'props': {'cols': 1},
+                     'content': [{'component': 'span', 'text': need_proxy}]},
+                    {'component': 'VCol', 'props': {'cols': 1},
+                     'content': [{'component': 'span', 'text': has_trigger}]},
+                    {'component': 'VCol', 'props': {'cols': 2, 'class': 'text-truncate'},
+                     'content': [{'component': 'span', 'text': dl_sel}]},
+                ]
+            })
+
+        return [
+            {
+                'component': 'VRow',
+                'content': [{
+                    'component': 'VCol', 'props': {'cols': 12},
+                    'content': [{
+                        'component': 'VAlert',
+                        'props': {'type': 'success' if self._enabled else 'info', 'variant': 'tonal',
+                                  'text': ' | '.join(status_parts)}
+                    }]
+                }]
+            },
+            *rows,
+            {
+                'component': 'VRow',
+                'content': [{
+                    'component': 'VCol', 'props': {'cols': 12},
+                    'content': [{
+                        'component': 'VAlert',
+                        'props': {'type': 'info', 'variant': 'tonal',
+                                  'text': '索引器注册后可在「站点管理」中通过域名添加站点。Cookie/代理/触发 列表示桥接规则配置。"自动扫描"表示未指定 CSS 选择器，由插件自动检测 magnet:/torrent 链接。'}
+                    }]
+                }]
+            }
+        ]
