@@ -1,0 +1,45 @@
+# ====== ØMagnet (cili.cam) 完整 YAML 配置 ======
+# 复制到 SiteDownloadBridge 插件的配置文本区即可使用
+#
+# 搜索 URL: https://cili.cam/search?q={keyword}
+# 详情页直接包含 magnet: 链接（无需 AJAX，无需按钮触发）
+
+sites:
+  - name: "0Magnet"
+    domains:
+      - "cili.cam"
+      - "0magnet.com"
+    
+    indexer:
+      domain: "cili.cam"
+      public: true
+      encoding: "UTF-8"
+      search:
+        paths:
+          - path: "/search?q={keyword}"
+            method: "get"
+      torrents:
+        list:
+          selector: "table.file-list tbody tr"
+        fields:
+          title:
+            selector: "td a"
+          details:
+            selector: "td a"
+            attribute: "href"
+          download:
+            selector: "td a"
+            attribute: "href"
+          size:
+            selector: "td.td-size"
+            optional: true
+          downloadvolumefactor:
+            case:
+              "*": 0
+          uploadvolumefactor:
+            case:
+              "*": 1
+    
+    bridge:
+      need_cookie: false
+      need_proxy: false
